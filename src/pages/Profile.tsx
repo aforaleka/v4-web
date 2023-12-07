@@ -2,12 +2,16 @@ import styled, { AnyStyledComponent, css } from 'styled-components';
 import { Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useEnsName } from 'wagmi';
+import { useNavigate } from 'react-router-dom';
 
 import { ButtonSize } from '@/constants/buttons';
+import { TransferInputField, TransferType } from '@/constants/abacus';
+
+import { layoutMixins } from '@/styles/layoutMixins';
 
 import { Details } from '@/components/Details';
 import { FillsTable, FillsTableColumnKey } from '@/views/tables/FillsTable';
-import { IconName } from '@/components/Icon';
+import { Icon, IconName } from '@/components/Icon';
 import { IconButton, type IconButtonProps } from '@/components/IconButton';
 import { Panel } from '@/components/Panel';
 import { Toolbar } from '@/components/Toolbar';
@@ -16,27 +20,28 @@ import { OnboardingState } from '@/constants/account';
 import { DialogTypes } from '@/constants/dialogs';
 import { STRING_KEYS } from '@/constants/localization';
 import { AppRoute, PortfolioRoute, HistoryRoute } from '@/constants/routes';
-import { wallets, WalletType } from '@/constants/wallets';
-import { useAccounts, useStringGetter } from '@/hooks';
+import { wallets } from '@/constants/wallets';
+import { useAccounts, useStringGetter, useTokenConfigs } from '@/hooks';
 
 import { getOnboardingState } from '@/state/accountSelectors';
 import { openDialog } from '@/state/dialogs';
 
+import abacusStateManager from '@/lib/abacus';
 import { isTruthy } from '@/lib/isTruthy';
 import { truncateAddress } from '@/lib/wallet';
-
-import { layoutMixins } from '@/styles/layoutMixins';
 
 const ENS_CHAIN_ID = 1; // Ethereum
 
 const Profile = () => {
   const stringGetter = useStringGetter();
   const dispatch = useDispatch();
+  const navigate = useNavigate();
 
   const onboardingState = useSelector(getOnboardingState);
   const isConnected = onboardingState !== OnboardingState.Disconnected;
 
   const { evmAddress, dydxAddress, walletType } = useAccounts();
+  const { chainTokenLabel } = useTokenConfigs();
 
   const { data: ensName } = useEnsName({
     address: evmAddress,
@@ -45,16 +50,50 @@ const Profile = () => {
 
   const actions = [
     {
-      key: 'settings',
-      label: stringGetter({ key: STRING_KEYS.SETTINGS }),
-      icon: { iconName: IconName.Gear },
-      href: AppRoute.Settings,
+      key: 'deposit',
+      label: stringGetter({ key: STRING_KEYS.DEPOSIT }),
+      icon: { iconName: IconName.Deposit },
+      onClick: () => {
+        dispatch(
+          openDialog({
+            type: DialogTypes.ManageFunds,
+            dialogProps: {
+              selectedTransferType: TransferType.deposit.rawValue,
+            },
+          })
+        );
+      },
     },
-    // {
-    //   key: 'tutorials',
-    //   label: stringGetter({ key: STRING_KEYS.TUTORIALS }),
-    //   icon: { iconName: IconName.Comment },
-    // },
+    {
+      key: 'withdraw',
+      label: stringGetter({ key: STRING_KEYS.WITHDRAW }),
+      icon: { iconName: IconName.Withdraw },
+      onClick: () => {
+        dispatch(
+          openDialog({
+            type: DialogTypes.ManageFunds,
+            dialogProps: {
+              selectedTransferType: TransferType.withdrawal.rawValue,
+            },
+          })
+        );
+      },
+    },
+    {
+      key: 'transfer',
+      label: stringGetter({ key: STRING_KEYS.TRANSFER }),
+      icon: { iconName: IconName.Send },
+      onClick: () => {
+        dispatch(
+          openDialog({
+            type: DialogTypes.ManageFunds,
+            dialogProps: {
+              selectedTransferType: TransferType.transferOut.rawValue,
+            },
+          })
+        );
+      },
+    },
     isConnected
       ? {
           key: 'sign-out',
@@ -65,9 +104,9 @@ const Profile = () => {
           },
         }
       : {
-          key: 'wallet',
-          label: stringGetter({ key: STRING_KEYS.WALLET }),
-          icon: { iconComponent: wallets[walletType || WalletType.OtherWallet].icon },
+          key: 'connect',
+          label: stringGetter({ key: STRING_KEYS.CONNECT }),
+          icon: { iconName: IconName.Transfer },
           onClick: () => {
             dispatch(openDialog({ type: DialogTypes.Onboarding }));
           },
@@ -103,12 +142,7 @@ const Profile = () => {
         {actions.map(({ key, label, href, icon, onClick }) => {
           const action = (
             <>
-              <Styled.ActionButton
-                {...icon}
-                size={ButtonSize.Large}
-                onClick={onClick}
-                isCloseIcon={icon.iconName === IconName.Close}
-              />
+              <Styled.ActionButton {...icon} size={ButtonSize.Large} onClick={onClick} />
               <span>{label}</span>
             </>
           );
@@ -121,6 +155,26 @@ const Profile = () => {
           );
         })}
       </Styled.Actions>
+      <Styled.EqualGrid>
+        <Styled.PanelButton
+          slotHeader={
+            <Styled.InlineRow>
+              <Icon iconName={IconName.Gear} />
+              {stringGetter({ key: STRING_KEYS.SETTINGS })}
+            </Styled.InlineRow>
+          }
+          onClick={() => navigate(AppRoute.Settings)}
+        />
+        <Styled.PanelButton
+          slotHeader={
+            <Styled.InlineRow>
+              <Icon iconName={IconName.HelpCircle} />
+              {stringGetter({ key: STRING_KEYS.HELP })}
+            </Styled.InlineRow>
+          }
+          onClick={() => dispatch(openDialog({ type: DialogTypes.Help }))}
+        />
+      </Styled.EqualGrid>
 
       <Styled.EqualGrid>
         <Panel
@@ -137,7 +191,11 @@ const Profile = () => {
             layout="grid"
           />
         </Panel>
-        <Styled.RewardsPanel header={stringGetter({ key: STRING_KEYS.REWARDS })} hasSeparator>
+        <Styled.RewardsPanel
+          slotHeaderContent={stringGetter({ key: STRING_KEYS.REWARDS })}
+          href={`/${chainTokenLabel}`}
+          hasSeparator
+        >
           <Styled.Details
             items={[
               { key: 'maker', label: stringGetter({ key: STRING_KEYS.YOU_WILL_EARN }), value: '-' },
@@ -149,8 +207,8 @@ const Profile = () => {
       </Styled.EqualGrid>
 
       <Styled.TablePanel
-        header={stringGetter({ key: STRING_KEYS.HISTORY })}
-        linkto={`${AppRoute.Portfolio}/${PortfolioRoute.History}/${HistoryRoute.Trades}`}
+        slotHeaderContent={stringGetter({ key: STRING_KEYS.HISTORY })}
+        href={`${AppRoute.Portfolio}/${PortfolioRoute.History}/${HistoryRoute.Trades}`}
         hasSeparator
       >
         <FillsTable
@@ -175,7 +233,7 @@ Styled.MobileProfileLayout = styled.div`
   ${layoutMixins.contentContainerPage}
 
   gap: 1rem;
-  padding: 1rem;
+  padding: 1.25rem 0.9rem;
 `;
 
 Styled.Header = styled.header`
@@ -240,19 +298,21 @@ Styled.Actions = styled(Toolbar)`
   }
 `;
 
-Styled.ActionButton = styled(IconButton)<{ isCloseIcon?: boolean }>`
+Styled.ActionButton = styled(IconButton)<{ iconName?: IconName }>`
   margin-bottom: 0.5rem;
 
-  ${({ isCloseIcon }) =>
-    isCloseIcon &&
-    css`
-      --button-textColor: var(--color-negative);
-
-      svg {
-        width: 0.875em;
-        height: 0.875em;
-      }
-    `}
+  ${({ iconName }) =>
+    iconName === IconName.Close
+      ? css`
+          --button-textColor: var(--color-negative);
+          --button-icon-size: 0.75em;
+        `
+      : iconName === IconName.Transfer &&
+        css`
+          --button-icon-size: 1.25em;
+          --button-textColor: var(--color-text-2);
+          --button-backgroundColor: var(--color-accent);
+        `}
 `;
 
 Styled.EqualGrid = styled.div`
@@ -273,22 +333,25 @@ Styled.RewardsPanel = styled(Panel)`
 `;
 
 Styled.TablePanel = styled(Panel)`
-  padding: 0;
-  max-width: calc(100vw - 2rem);
-  max-height: 10rem;
+  --panel-content-paddingY: 0;
+  --panel-content-paddingX: 0;
+
+  > div > div {
+    margin-top: 0.5rem;
+    --scrollArea-height: 10rem;
+    border-radius: 0.875rem;
+  }
 
   table {
+    max-height: 10rem;
     --tableCell-padding: 0.25rem 1rem;
-
-    background-color: transparent;
-
+    --tableRow-backgroundColor: var(--color-layer-3);
+    background-color: var(--color-layer-3);
     thead {
       color: var(--color-text-0);
     }
 
     tbody {
-      background-color: transparent;
-
       tr {
         td:nth-child(2),
         td:nth-child(3) {
@@ -297,4 +360,15 @@ Styled.TablePanel = styled(Panel)`
       }
     }
   }
+`;
+
+Styled.InlineRow = styled.div`
+  ${layoutMixins.inlineRow}
+  padding: 1rem;
+  gap: 0.5rem;
+`;
+
+Styled.PanelButton = styled(Panel)`
+  --panel-paddingY: 0
+  --panel-paddingX:0;
 `;

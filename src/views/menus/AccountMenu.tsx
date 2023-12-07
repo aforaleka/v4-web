@@ -1,19 +1,28 @@
 import { memo } from 'react';
-import styled, { AnyStyledComponent } from 'styled-components';
+import styled, { AnyStyledComponent, css } from 'styled-components';
 import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 import type { Dispatch } from '@reduxjs/toolkit';
 
 import { OnboardingState } from '@/constants/account';
 import { ButtonAction, ButtonShape, ButtonSize, ButtonType } from '@/constants/buttons';
 import { DialogTypes } from '@/constants/dialogs';
-import { STRING_KEYS, TOOLTIP_STRING_KEYS } from '@/constants/localization';
+import { STRING_KEYS, StringGetterFunction, TOOLTIP_STRING_KEYS } from '@/constants/localization';
+import { isMainnet } from '@/constants/networks';
 import { DydxChainAsset, wallets } from '@/constants/wallets';
 
-import { useAccounts, useBreakpoints, useStringGetter, useAccountBalance } from '@/hooks';
+import {
+  useAccounts,
+  useBreakpoints,
+  useTokenConfigs,
+  useStringGetter,
+  useAccountBalance,
+  useURLConfigs,
+} from '@/hooks';
 
 import { OnboardingTriggerButton } from '@/views/dialogs/OnboardingTriggerButton';
 
 import { AssetIcon } from '@/components/AssetIcon';
+import { CopyButton } from '@/components/CopyButton';
 import { DropdownMenu } from '@/components/DropdownMenu';
 import { Output, OutputType } from '@/components/Output';
 import { Icon, IconName } from '@/components/Icon';
@@ -29,18 +38,21 @@ import { truncateAddress } from '@/lib/wallet';
 
 import { layoutMixins } from '@/styles/layoutMixins';
 import { headerMixins } from '@/styles/headerMixins';
-
-const explorerBaseUri = 'https://testnet.mintscan.io/dydx-testnet';
+import { MustBigNumber } from '@/lib/numbers';
 
 export const AccountMenu = () => {
   const stringGetter = useStringGetter();
+  const { mintscanBase } = useURLConfigs();
   const { isTablet } = useBreakpoints();
   const dispatch = useDispatch();
   const onboardingState = useSelector(getOnboardingState);
   const { freeCollateral } = useSelector(getSubaccount, shallowEqual) || {};
   const { nativeTokenBalance } = useAccountBalance();
+  const { usdcLabel, chainTokenLabel } = useTokenConfigs();
 
   const { evmAddress, walletType, dydxAddress, hdKey } = useAccounts();
+
+  const usdcBalance = freeCollateral?.current || 0;
 
   const onRecoverKeys = () => {
     dispatch(openDialog({ type: DialogTypes.Onboarding }));
@@ -77,19 +89,16 @@ export const AccountMenu = () => {
                 </WithTooltip>
                 <Styled.Address>{truncateAddress(dydxAddress)}</Styled.Address>
               </Styled.Column>
-              <IconButton
-                action={ButtonAction.Base}
-                iconName={IconName.Copy}
-                onClick={() => dydxAddress && navigator.clipboard.writeText(dydxAddress)}
-                shape={ButtonShape.Square}
-              />
-              <IconButton
-                action={ButtonAction.Base}
-                href={`${explorerBaseUri}/account/${dydxAddress}`}
-                iconName={IconName.LinkOut}
-                shape={ButtonShape.Square}
-                type={ButtonType.Link}
-              />
+              <Styled.CopyButton buttonType="icon" value={dydxAddress} shape={ButtonShape.Square} />
+              <WithTooltip tooltipString={stringGetter({ key: STRING_KEYS.MINTSCAN })}>
+                <Styled.IconButton
+                  action={ButtonAction.Base}
+                  href={`${mintscanBase}/account/${dydxAddress}`}
+                  iconName={IconName.LinkOut}
+                  shape={ButtonShape.Square}
+                  type={ButtonType.Link}
+                />
+              </WithTooltip>
             </Styled.AddressRow>
             <Styled.AddressRow>
               {walletType && (
@@ -107,26 +116,43 @@ export const AccountMenu = () => {
               <div>
                 <div>
                   <Styled.label>
-                    {stringGetter({ key: STRING_KEYS.ASSET_BALANCE, params: { ASSET: 'Dv4TNT' } })}
-                    {/* <AssetIcon symbol="DYDX" /> */}
+                    {stringGetter({
+                      key: STRING_KEYS.ASSET_BALANCE,
+                      params: { ASSET: chainTokenLabel },
+                    })}
+                    <AssetIcon symbol={chainTokenLabel} />
                   </Styled.label>
                   <Styled.BalanceOutput type={OutputType.Asset} value={nativeTokenBalance} />
                 </div>
-                <AssetActions asset={DydxChainAsset.DYDX} dispatch={dispatch} />
+                <AssetActions
+                  asset={DydxChainAsset.CHAINTOKEN}
+                  dispatch={dispatch}
+                  hasBalance={nativeTokenBalance.gt(0)}
+                  stringGetter={stringGetter}
+                />
               </div>
               <div>
                 <div>
                   <Styled.label>
-                    {stringGetter({ key: STRING_KEYS.ASSET_BALANCE, params: { ASSET: 'USDC' } })}
+                    {stringGetter({
+                      key: STRING_KEYS.ASSET_BALANCE,
+                      params: { ASSET: usdcLabel },
+                    })}
                     <AssetIcon symbol="USDC" />
                   </Styled.label>
                   <Styled.BalanceOutput
                     type={OutputType.Asset}
-                    value={freeCollateral?.current || 0}
+                    value={usdcBalance}
                     fractionDigits={2}
                   />
                 </div>
-                <AssetActions asset={DydxChainAsset.USDC} dispatch={dispatch} />
+                <AssetActions
+                  asset={DydxChainAsset.USDC}
+                  dispatch={dispatch}
+                  hasBalance={MustBigNumber(usdcBalance).gt(0)}
+                  stringGetter={stringGetter}
+                  withOnboarding
+                />
               </div>
             </Styled.Balances>
           </Styled.AccountInfo>
@@ -144,22 +170,15 @@ export const AccountMenu = () => {
           onSelect: onRecoverKeys,
           separator: true,
         },
-        dydxAddress && {
-          value: 'CopyAddress',
-          icon: <Icon iconName={IconName.Copy} />,
-          label: stringGetter({ key: STRING_KEYS.COPY_ADDRESS }),
-          onSelect: async () => await navigator.clipboard.writeText(dydxAddress),
+        {
+          value: 'Preferences',
+          icon: <Icon iconName={IconName.Gear} />,
+          label: stringGetter({ key: STRING_KEYS.PREFERENCES }),
+          onSelect: () => dispatch(openDialog({ type: DialogTypes.Preferences })),
         },
-        // {
-        //   value: 'ViewInExplorer',
-        //   icon: <Icon iconName={IconName.Etherscan} />,
-        //   label: stringGetter({ key: STRING_KEYS.OPEN_IN_ETHERSCAN }),
-        //   onSelect: () => globalThis.open(`${explorerBaseUri}/address/${address}`),
-        //   separator: true,
-        // },
         ...(onboardingState === OnboardingState.AccountConnected && hdKey
           ? [
-              {
+              !isMainnet && {
                 value: 'MobileQrSignIn',
                 icon: <Icon iconName={IconName.Qr} />,
                 label: stringGetter({ key: STRING_KEYS.TITLE_SIGN_INTO_MOBILE }),
@@ -167,16 +186,12 @@ export const AccountMenu = () => {
               },
               {
                 value: 'MnemonicExport',
-                icon: (
-                  <span>
-                    <Icon iconName={IconName.ExportKeys} />
-                  </span>
-                ),
+                icon: <Icon iconName={IconName.ExportKeys} />,
                 label: <span>{stringGetter({ key: STRING_KEYS.EXPORT_SECRET_PHRASE })}</span>,
                 highlightColor: 'negative',
                 onSelect: () => dispatch(openDialog({ type: DialogTypes.MnemonicExport })),
               },
-            ]
+            ].filter(isTruthy)
           : []),
         {
           value: 'Disconnect',
@@ -199,28 +214,58 @@ export const AccountMenu = () => {
   );
 };
 
-const AssetActions = memo(({ asset, dispatch }: { asset: DydxChainAsset; dispatch: Dispatch }) => (
-  <Styled.InlineRow>
-    {[
-      // TODO(@rosepuppy): Add withdraw action for USDC
-      {
-        dialogType: DialogTypes.Receive,
-        iconName: IconName.Qr,
-      },
-      { dialogType: DialogTypes.Transfer, iconName: IconName.Send },
-    ].map(({ iconName, dialogType }) => (
-      <IconButton
-        key={dialogType}
-        action={ButtonAction.Base}
-        shape={ButtonShape.Square}
-        iconName={iconName}
-        onClick={() =>
-          dispatch(openDialog({ type: dialogType, dialogProps: { selectedAsset: asset } }))
-        }
-      />
-    ))}
-  </Styled.InlineRow>
-));
+const AssetActions = memo(
+  ({
+    asset,
+    dispatch,
+    withOnboarding,
+    hasBalance,
+    stringGetter,
+  }: {
+    asset: DydxChainAsset;
+    dispatch: Dispatch;
+    withOnboarding?: boolean;
+    hasBalance?: boolean;
+    stringGetter: StringGetterFunction;
+  }) => (
+    <Styled.InlineRow>
+      {[
+        withOnboarding && {
+          dialogType: DialogTypes.Deposit,
+          iconName: IconName.Deposit,
+          tooltipStringKey: STRING_KEYS.DEPOSIT,
+        },
+        withOnboarding &&
+          hasBalance && {
+            dialogType: DialogTypes.Withdraw,
+            iconName: IconName.Withdraw,
+            tooltipStringKey: STRING_KEYS.WITHDRAW,
+          },
+        hasBalance && {
+          dialogType: DialogTypes.Transfer,
+          dialogProps: { selectedAsset: asset },
+          iconName: IconName.Send,
+          tooltipStringKey: STRING_KEYS.TRANSFER,
+        },
+      ]
+        .filter(isTruthy)
+        .map(({ iconName, tooltipStringKey, dialogType, dialogProps }) => (
+          <Styled.WithTooltip
+            key={tooltipStringKey}
+            tooltipString={stringGetter({ key: tooltipStringKey })}
+          >
+            <Styled.IconButton
+              key={dialogType}
+              action={ButtonAction.Base}
+              shape={ButtonShape.Square}
+              iconName={iconName}
+              onClick={() => dispatch(openDialog({ type: dialogType, dialogProps }))}
+            />
+          </Styled.WithTooltip>
+        ))}
+    </Styled.InlineRow>
+  )
+);
 
 const Styled: Record<string, AnyStyledComponent> = {};
 
@@ -288,13 +333,12 @@ Styled.label = styled.div`
 Styled.Balances = styled.div`
   ${layoutMixins.flexColumn}
 
-  gap: 2px;
-
   > div {
     ${layoutMixins.spacedRow}
+    box-shadow: 0 0 0 1px var(--color-border);
 
     gap: 0.5rem;
-    padding: 0.5rem 1rem;
+    padding: 0.625rem 1rem;
 
     background-color: var(--color-layer-4);
 
@@ -337,4 +381,24 @@ Styled.ConnectToChain = styled(Styled.Column)`
     color: var(--color-text-1);
     font: var(--font-small-book);
   }
+`;
+
+Styled.IconButton = styled(IconButton)<{ iconName: IconName }>`
+  --button-padding: 0 0.25rem;
+  --button-border: solid var(--border-width) var(--color-layer-6);
+
+  ${({ iconName }) =>
+    [IconName.Withdraw, IconName.Deposit].includes(iconName) &&
+    css`
+      --button-icon-size: 1.375em;
+    `}
+`;
+
+Styled.CopyButton = styled(CopyButton)`
+  --button-padding: 0 0.25rem;
+  --button-border: solid var(--border-width) var(--color-layer-6);
+`;
+
+Styled.WithTooltip = styled(WithTooltip)`
+  --tooltip-backgroundColor: var(--color-layer-5);
 `;

@@ -3,6 +3,7 @@ export enum DialogTypes {
   Deposit = 'Deposit',
   DisconnectWallet = 'DisconnectWallet',
   ExchangeOffline = 'ExchangeOffline',
+  ExternalLink = 'ExternalLink',
   FillDetails = 'FillDetails',
   Help = 'Help',
   ExternalNavKeplr = 'ExternalNavKeplr',
@@ -10,13 +11,14 @@ export enum DialogTypes {
   MobileSignIn = 'MobileSignIn',
   Onboarding = 'Onboarding',
   OrderDetails = 'OrderDetails',
+  Preferences = 'Preferences',
   RateLimit = 'RateLimit',
-  Receive = 'Receive',
   RestrictedGeo = 'RestrictedGeo',
   RestrictedWallet = 'RestrictedWallet',
   Trade = 'Trade',
   Transfer = 'Transfer',
   Withdraw = 'Withdraw',
+  ManageFunds = 'ManageFunds',
 }
 
 export enum TradeBoxDialogTypes {

@@ -2,7 +2,7 @@ import { useCallback, useContext, createContext, useEffect, useState, useMemo } 
 
 import { useDispatch } from 'react-redux';
 import { AES, enc } from 'crypto-js';
-import { LocalWallet, USDC_DENOM, type Subaccount } from '@dydxprotocol/v4-client-js';
+import { NOBLE_BECH32_PREFIX, LocalWallet, type Subaccount } from '@dydxprotocol/v4-client-js';
 
 import { OnboardingGuard, OnboardingState, type EvmDerivedAddresses } from '@/constants/account';
 import { DialogTypes } from '@/constants/dialogs';
@@ -42,6 +42,7 @@ const useAccountsContext = () => {
     selectedWalletError,
     evmAddress,
     signerWagmi,
+    publicClientWagmi,
     dydxAddress: connectedDydxAddress,
     signerGraz,
   } = useWalletConnection();
@@ -130,21 +131,13 @@ const useAccountsContext = () => {
   // dYdX subaccounts
   const [dydxSubaccounts, setDydxSubaccounts] = useState<Subaccount[] | undefined>();
 
-  const { getAccountBalance, getSubaccounts } = useMemo(
+  const { getSubaccounts } = useMemo(
     () => ({
-      getAccountBalance: async ({
-        dydxAddress,
-        denom = USDC_DENOM,
-      }: {
-        dydxAddress: DydxAddress;
-        denom?: string;
-      }) => await compositeClient?.validatorClient.get.getAccountBalance(dydxAddress, denom),
-
       getSubaccounts: async ({ dydxAddress }: { dydxAddress: DydxAddress }) => {
         try {
           const response = await compositeClient?.indexerClient.account.getSubaccounts(dydxAddress);
-          setDydxSubaccounts(response.subaccounts);
-          return response.subaccounts;
+          setDydxSubaccounts(response?.subaccounts);
+          return response?.subaccounts ?? [];
         } catch (error) {
           // 404 is expected if the user has no subaccounts
           if (error.status === 404) {
@@ -226,6 +219,16 @@ const useAccountsContext = () => {
     else abacusStateManager.attemptDisconnectAccount();
   }, [localDydxWallet]);
 
+  useEffect(() => {
+    const setNobleWallet = async () => {
+      if (hdKey?.mnemonic) {
+        const nobleWallet = await LocalWallet.fromMnemonic(hdKey.mnemonic, NOBLE_BECH32_PREFIX);
+        abacusStateManager.setNobleWallet(nobleWallet);
+      }
+    };
+    setNobleWallet();
+  }, [hdKey?.mnemonic]);
+
   // clear subaccounts when no dydxAddress is set
   useEffect(() => {
     (async () => {
@@ -304,6 +307,7 @@ const useAccountsContext = () => {
     // Wallet connection (EVM)
     evmAddress,
     signerWagmi,
+    publicClientWagmi,
 
     // Wallet connection (Cosmos)
     signerGraz,
@@ -326,7 +330,6 @@ const useAccountsContext = () => {
     disconnect,
 
     // dydxClient Account methods
-    getAccountBalance,
     getSubaccounts,
   };
 };

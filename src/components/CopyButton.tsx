@@ -9,14 +9,21 @@ import { layoutMixins } from '@/styles/layoutMixins';
 
 import { Button, ButtonProps } from './Button';
 import { Icon, IconName } from './Icon';
+import { IconButton } from './IconButton';
+import { WithTooltip } from './WithTooltip';
 
 export type CopyButtonProps = {
   value?: string;
-  shownAsText?: boolean;
+  buttonType?: 'text' | 'icon' | 'default';
   children?: React.ReactNode;
 } & ButtonProps;
 
-export const CopyButton = ({ value, shownAsText, children, ...buttonProps }: CopyButtonProps) => {
+export const CopyButton = ({
+  value,
+  buttonType = 'default',
+  children,
+  ...buttonProps
+}: CopyButtonProps) => {
   const stringGetter = useStringGetter();
   const [copied, setCopied] = useState(false);
 
@@ -28,11 +35,23 @@ export const CopyButton = ({ value, shownAsText, children, ...buttonProps }: Cop
     setTimeout(() => setCopied(false), 500);
   };
 
-  return shownAsText ? (
+  return buttonType === 'text' ? (
     <Styled.InlineRow onClick={onCopy} copied={copied}>
       {children}
-      <Icon iconName={IconName.Copy} />
+      <Styled.Icon copied={copied} iconName={copied ? IconName.Check : IconName.Copy} />
     </Styled.InlineRow>
+  ) : buttonType === 'icon' ? (
+    <WithTooltip
+      tooltipString={stringGetter({ key: copied ? STRING_KEYS.COPIED : STRING_KEYS.COPY })}
+    >
+      <Styled.IconButton
+        {...buttonProps}
+        copied={copied}
+        action={ButtonAction.Base}
+        iconName={copied ? IconName.Check : IconName.Copy}
+        onClick={onCopy}
+      />
+    </WithTooltip>
   ) : (
     <Button
       {...buttonProps}
@@ -62,4 +81,22 @@ Styled.InlineRow = styled.div<{ copied: boolean }>`
             text-decoration: underline;
           }
         `}
+`;
+
+Styled.Icon = styled(Icon)<{ copied: boolean }>`
+  ${({ copied }) =>
+    copied &&
+    css`
+      color: var(--color-positive);
+    `}
+`;
+
+Styled.IconButton = styled(IconButton)<{ copied: boolean }>`
+  ${({ copied }) =>
+    copied &&
+    css`
+      svg {
+        color: var(--color-positive);
+      }
+    `}
 `;

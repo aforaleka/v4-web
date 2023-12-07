@@ -2,8 +2,9 @@ import type { ElementType } from 'react';
 import styled, { AnyStyledComponent } from 'styled-components';
 import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 
+import breakpoints from '@/styles/breakpoints';
 import { layoutMixins } from '@/styles/layoutMixins';
-import { useAccountBalance, useAccounts, useStringGetter } from '@/hooks';
+import { useAccountBalance, useAccounts, useTokenConfigs, useStringGetter } from '@/hooks';
 
 import { ButtonAction, ButtonSize } from '@/constants/buttons';
 import { DialogTypes } from '@/constants/dialogs';
@@ -22,7 +23,6 @@ import { OnboardingTriggerButton } from '@/views/dialogs/OnboardingTriggerButton
 import { openDialog } from '@/state/dialogs';
 import { calculateCanAccountTrade } from '@/state/accountCalculators';
 
-// TODO(@aforaleka): replace with real data
 export const DYDXBalancePanel = () => {
   const dispatch = useDispatch();
   const stringGetter = useStringGetter();
@@ -30,38 +30,30 @@ export const DYDXBalancePanel = () => {
   const { walletType } = useAccounts();
   const canAccountTrade = useSelector(calculateCanAccountTrade, shallowEqual);
   const { nativeTokenBalance, nativeStakingBalance } = useAccountBalance();
+  const { chainTokenLabel } = useTokenConfigs();
 
   return (
-    <Panel
+    <Styled.Panel
       slotHeader={
         <Styled.Header>
           <Styled.Title>
-            {/* <AssetIcon symbol="DYDX" /> */}
-            Dv4TNT
+            <AssetIcon symbol={chainTokenLabel} />
+            {chainTokenLabel}
           </Styled.Title>
-          <Styled.ReceiveAndTransferButtons>
+          <Styled.ActionButtons>
             {!canAccountTrade ? (
               <OnboardingTriggerButton size={ButtonSize.Small} />
             ) : (
-              <>
-                <Styled.ReceiveButton
-                  slotLeft={<Icon iconName={IconName.Qr} />}
-                  size={ButtonSize.Small}
-                  onClick={() => dispatch(openDialog({ type: DialogTypes.Receive }))}
-                >
-                  {stringGetter({ key: STRING_KEYS.RECEIVE })}
-                </Styled.ReceiveButton>
-                <Button
-                  slotLeft={<Icon iconName={IconName.Send} />}
-                  size={ButtonSize.Small}
-                  action={ButtonAction.Primary}
-                  onClick={() => dispatch(openDialog({ type: DialogTypes.Transfer }))}
-                >
-                  {stringGetter({ key: STRING_KEYS.TRANSFER })}
-                </Button>
-              </>
+              <Button
+                slotLeft={<Icon iconName={IconName.Send} />}
+                size={ButtonSize.Small}
+                action={ButtonAction.Primary}
+                onClick={() => dispatch(openDialog({ type: DialogTypes.Transfer }))}
+              >
+                {stringGetter({ key: STRING_KEYS.TRANSFER })}
+              </Button>
             )}
-          </Styled.ReceiveAndTransferButtons>
+          </Styled.ActionButtons>
         </Styled.Header>
       }
     >
@@ -106,20 +98,36 @@ export const DYDXBalancePanel = () => {
             {
               key: 'totalBalance',
               label: 'Total balance',
-              value: <Output type={OutputType.Asset} value={nativeTokenBalance + nativeStakingBalance} tag="Dv4TNT" />,
+              value: (
+                <Output
+                  type={OutputType.Asset}
+                  value={nativeTokenBalance.plus(nativeStakingBalance)}
+                  tag={chainTokenLabel}
+                />
+              ),
             },
           ]}
         />
       </Styled.Content>
-    </Panel>
+    </Styled.Panel>
   );
 };
 
 const Styled: Record<string, AnyStyledComponent> = {};
 
+Styled.Panel = styled(Panel)`
+  --panel-paddingX: 1.5rem;
+
+  @media ${breakpoints.tablet} {
+    --panel-paddingY: 1.5rem;
+    --panel-content-paddingY: 1rem;
+  }
+`;
+
 Styled.Header = styled.div`
   ${layoutMixins.spacedRow}
-  padding: 1.25rem 1.5rem 0.5rem;
+  gap: 1rem;
+  padding: var(--panel-paddingY) var(--panel-paddingX) 0;
 `;
 
 Styled.Title = styled.h3`
@@ -132,7 +140,7 @@ Styled.Title = styled.h3`
   }
 `;
 
-Styled.ReceiveAndTransferButtons = styled(Toolbar)`
+Styled.ActionButtons = styled(Toolbar)`
   ${layoutMixins.inlineRow}
   --stickyArea-topHeight: max-content;
   gap: 0.5rem;
@@ -148,7 +156,6 @@ Styled.ReceiveButton = styled(Button)`
 Styled.Content = styled.div`
   ${layoutMixins.flexColumn}
   gap: 0.75rem;
-  padding: 0 0.5rem 0.5rem;
 `;
 
 Styled.IconContainer = styled.div`
@@ -172,8 +179,7 @@ Styled.WalletAndStakedBalance = styled(Details)`
   --details-item-backgroundColor: var(--color-layer-6);
 
   grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-
+  gap: 1rem;
 
   > div {
     gap: 1rem;

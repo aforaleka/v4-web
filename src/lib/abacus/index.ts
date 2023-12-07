@@ -26,12 +26,14 @@ import {
 } from '@/constants/abacus';
 
 import { DEFAULT_MARKETID } from '@/constants/markets';
-import { CURRENT_ABACUS_DEPLOYMENT, type DydxNetwork } from '@/constants/networks';
+import { CURRENT_ABACUS_DEPLOYMENT, type DydxNetwork, isMainnet } from '@/constants/networks';
+import { CLEARED_SIZE_INPUTS, CLEARED_TRADE_INPUTS } from '@/constants/trade';
 
 import type { RootStore } from '@/state/_store';
+import { setTradeFormInputs } from '@/state/inputs';
+import { getInputTradeOptions, getTransferInputs } from '@/state/inputsSelectors';
 
-import { getInputTradeOptions } from '@/state/inputsSelectors';
-import { getTransferInputs } from '@/state/inputsSelectors';
+import { testFlags } from '@/lib/testFlags';
 
 import AbacusRest from './rest';
 import AbacusAnalytics from './analytics';
@@ -41,8 +43,9 @@ import AbacusStateNotifier from './stateNotification';
 import AbacusLocalizer from './localizer';
 import AbacusFormatter from './formatter';
 import AbacusThreading from './threading';
-import AbacusFileSystem, { ENDPOINTS_PATH } from './filesystem';
+import AbacusFileSystem from './filesystem';
 import { LocaleSeparators } from '../numbers';
+
 class AbacusStateManager {
   private store: RootStore | undefined;
   private currentMarket: string | undefined;
@@ -80,10 +83,14 @@ class AbacusStateManager {
       this.abacusFormatter
     );
 
+    const appConfigs = AbacusAppConfig.Companion.forWeb;
+    if (!isMainnet || testFlags.withCCTP)
+      appConfigs.squidVersion = AbacusAppConfig.SquidVersion.V2DepositOnly;
+
     this.stateManager = new AsyncAbacusStateManager(
       '',
       CURRENT_ABACUS_DEPLOYMENT,
-      AbacusAppConfig.Companion.forWeb,
+      appConfigs,
       ioImplementations,
       uiImplementations,
       // @ts-ignore
@@ -132,6 +139,8 @@ class AbacusStateManager {
       this.setTradeValue({ value: null, field: TradeInputField.limitPrice });
     }
 
+    this.store?.dispatch(setTradeFormInputs(CLEARED_TRADE_INPUTS));
+
     if (shouldResetSize) {
       this.setTradeValue({ value: null, field: TradeInputField.size });
       this.setTradeValue({ value: null, field: TradeInputField.usdcSize });
@@ -139,6 +148,8 @@ class AbacusStateManager {
       if (needsLeverage) {
         this.setTradeValue({ value: null, field: TradeInputField.leverage });
       }
+
+      this.store?.dispatch(setTradeFormInputs(CLEARED_SIZE_INPUTS));
     }
   };
 
@@ -172,6 +183,12 @@ class AbacusStateManager {
     if (localWallet) {
       this.stateManager.accountAddress = localWallet.address;
       this.chainTransactions.setLocalWallet(localWallet);
+    }
+  };
+
+  setNobleWallet = (nobleWallet?: LocalWallet) => {
+    if (nobleWallet) {
+      this.chainTransactions.setNobleWallet(nobleWallet);
     }
   };
 
@@ -216,18 +233,6 @@ class AbacusStateManager {
 
   setLocaleSeparators = ({ group, decimal }: LocaleSeparators) => {
     this.abacusFormatter.setLocaleSeparators({ group, decimal });
-  };
-
-  setTransferStatus = ({
-    hash,
-    fromChainId,
-    toChainId,
-  }: {
-    hash: string;
-    fromChainId?: string;
-    toChainId?: string;
-  }) => {
-    this.stateManager.transferStatus(hash, fromChainId, toChainId);
   };
 
   // ------ Transactions ------ //

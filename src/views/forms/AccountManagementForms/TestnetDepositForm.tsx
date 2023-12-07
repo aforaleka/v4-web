@@ -2,14 +2,16 @@ import { useState, type FormEvent, useEffect } from 'react';
 import { shallowEqual, useSelector } from 'react-redux';
 import styled, { type AnyStyledComponent } from 'styled-components';
 
-import { ButtonAction, ButtonType } from '@/constants/buttons';
+import { ButtonAction, ButtonSize, ButtonType } from '@/constants/buttons';
 import { STRING_KEYS } from '@/constants/localization';
 import { ENVIRONMENT_CONFIG_MAP } from '@/constants/networks';
 import { useAccounts, useStringGetter, useSubaccount } from '@/hooks';
-import { layoutMixins } from '@/styles/layoutMixins';
+import { formMixins } from '@/styles/formMixins';
 
+import { OnboardingTriggerButton } from '@/views/dialogs/OnboardingTriggerButton';
 import { Button } from '@/components/Button';
 
+import { calculateCanAccountTrade } from '@/state/accountCalculators';
 import { getSubaccount } from '@/state/accountSelectors';
 import { getSelectedNetwork } from '@/state/appSelectors';
 
@@ -26,6 +28,7 @@ export const TestnetDepositForm = ({ onDeposit, onError }: DepositFormProps) => 
   const { requestFaucetFunds } = useSubaccount();
   const subAccount = useSelector(getSubaccount, shallowEqual);
   const selectedNetwork = useSelector(getSelectedNetwork);
+  const canAccountTrade = useSelector(calculateCanAccountTrade, shallowEqual);
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -71,13 +74,15 @@ export const TestnetDepositForm = ({ onDeposit, onError }: DepositFormProps) => 
           },
         })}
       </p>
-      <Styled.SubmitButton
-        action={ButtonAction.Primary}
-        type={ButtonType.Submit}
-        state={{ isLoading }}
-      >
-        {stringGetter({ key: STRING_KEYS.DEPOSIT_FUNDS })}
-      </Styled.SubmitButton>
+      <Styled.Footer>
+        {!canAccountTrade ? (
+          <OnboardingTriggerButton size={ButtonSize.Base} />
+        ) : (
+          <Button action={ButtonAction.Primary} type={ButtonType.Submit} state={{ isLoading }}>
+            {stringGetter({ key: STRING_KEYS.DEPOSIT_FUNDS })}
+          </Button>
+        )}
+      </Styled.Footer>
     </Styled.Form>
   );
 };
@@ -85,10 +90,14 @@ export const TestnetDepositForm = ({ onDeposit, onError }: DepositFormProps) => 
 const Styled: Record<string, AnyStyledComponent> = {};
 
 Styled.Form = styled.form`
-  ${layoutMixins.column}
-  gap: 1rem;
+  ${formMixins.transfersForm}
 `;
 
-Styled.SubmitButton = styled(Button)`
-  ${layoutMixins.stickyFooter}
+Styled.Footer = styled.footer`
+  ${formMixins.footer}
+  --stickyFooterBackdrop-outsetY: var(--dialog-content-paddingBottom);
+
+  button {
+    --button-width: 100%;
+  }
 `;

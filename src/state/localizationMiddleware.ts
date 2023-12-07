@@ -1,5 +1,10 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
-import { LOCALE_DATA, SupportedLocale, TOOLTIPS } from '@dydxprotocol/v4-localization';
+import {
+  LOCALE_DATA,
+  NOTIFICATIONS,
+  SupportedLocale,
+  TOOLTIPS,
+} from '@dydxprotocol/v4-localization';
 
 import {
   type LocaleData,
@@ -26,6 +31,7 @@ const getNewLocaleData = ({
 
   const newLocaleData = {
     ...LOCALE_DATA[locale],
+    ...NOTIFICATIONS[locale],
     TOOLTIPS: TOOLTIPS[locale],
   };
 
@@ -51,9 +57,8 @@ export default (store: any) => (next: any) => async (action: PayloadAction<any>)
       } else if (globalThis.navigator?.language) {
         const browserLanguageBaseTag = globalThis.navigator.language.split('-')[0].toLowerCase();
 
-        const locale = SUPPORTED_BASE_TAGS_LOCALE_MAPPING[
-          browserLanguageBaseTag
-        ] as SupportedLocales;
+        const locale = (SUPPORTED_BASE_TAGS_LOCALE_MAPPING[browserLanguageBaseTag] ??
+          SUPPORTED_BASE_TAGS_LOCALE_MAPPING[SupportedLocales.EN]) as SupportedLocales;
 
         if (locale) {
           store.dispatch(setSelectedLocale({ locale, isAutoDetect: true }));

@@ -1,6 +1,7 @@
 import Abacus, { type Nullable } from '@dydxprotocol/v4-abacus';
 import Long from 'long';
 import type { IndexedTx } from '@cosmjs/stargate';
+import { GAS_MULTIPLIER, encodeJson } from '@dydxprotocol/v4-client-js';
 
 import {
   CompositeClient,
@@ -8,14 +9,13 @@ import {
   type LocalWallet,
   Network,
   NetworkOptimizer,
+  NobleClient,
   SubaccountClient,
   ValidatorConfig,
   OrderType,
   OrderSide,
   OrderTimeInForce,
   OrderExecution,
-  DYDX_DENOM,
-  GAS_PRICE_DYDX_DENOM,
 } from '@dydxprotocol/v4-client-js';
 
 import {
@@ -32,7 +32,7 @@ import {
 
 import { DialogTypes } from '@/constants/dialogs';
 import { UNCOMMITTED_ORDER_TIMEOUT_MS } from '@/constants/trade';
-import { QUANTUM_MULTIPLIER } from '@/constants/numbers';
+import { ENVIRONMENT_CONFIG_MAP, DydxNetwork, isTestnet } from '@/constants/networks';
 
 import { RootStore } from '@/state/_store';
 import { addUncommittedOrderClientId, removeUncommittedOrderClientId } from '@/state/account';
@@ -44,8 +44,10 @@ import { log } from '../telemetry';
 
 class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
   private compositeClient: CompositeClient | undefined;
+  private nobleClient: NobleClient | undefined;
   private store: RootStore | undefined;
   private localWallet: LocalWallet | undefined;
+  private nobleWallet: LocalWallet | undefined;
 
   constructor() {
     this.compositeClient = undefined;
@@ -60,37 +62,63 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
     this.localWallet = localWallet;
   }
 
+  setNobleWallet(nobleWallet: LocalWallet) {
+    this.nobleWallet = nobleWallet;
+    if (this.nobleClient) {
+      this.nobleClient.connect(nobleWallet);
+    }
+  }
+
   async connectNetwork(
-    indexerUrl: string,
-    indexerSocketUrl: string,
-    validatorUrl: string,
-    chainId: string,
-    faucetUrl: Nullable<string> | undefined,
+    paramsInJson: Nullable<string>,
     callback: (p0: Nullable<string>) => void
   ): Promise<void> {
     try {
+      const parsedParams = paramsInJson ? JSON.parse(paramsInJson) : {};
+      const {
+        indexerUrl,
+        websocketUrl,
+        validatorUrl,
+        chainId,
+        nobleValidatorUrl,
+        USDC_DENOM,
+        USDC_DECIMALS,
+        USDC_GAS_DENOM,
+        CHAINTOKEN_DENOM,
+        CHAINTOKEN_DECIMALS,
+      } = parsedParams;
+
       const compositeClient = await CompositeClient.connect(
         new Network(
           chainId,
-          new IndexerConfig(indexerUrl, indexerSocketUrl),
-          new ValidatorConfig(validatorUrl, chainId, {
-            broadcastPollIntervalMs: 3_000,
-            broadcastTimeoutMs: 60_000,
-          })
+          new IndexerConfig(indexerUrl, websocketUrl),
+          new ValidatorConfig(
+            validatorUrl,
+            chainId,
+            {
+              USDC_DENOM,
+              USDC_DECIMALS,
+              USDC_GAS_DENOM,
+              CHAINTOKEN_DENOM,
+              CHAINTOKEN_DECIMALS,
+            },
+            {
+              broadcastPollIntervalMs: 3_000,
+              broadcastTimeoutMs: 60_000,
+            }
+          )
         )
       );
 
       this.compositeClient = compositeClient;
 
+      if (nobleValidatorUrl) {
+        this.nobleClient = new NobleClient(nobleValidatorUrl);
+        if (this.nobleWallet) await this.nobleClient.connect(this.nobleWallet);
+      }
       // Dispatch custom event to notify other parts of the app that the network has been connected
       const customEvent = new CustomEvent('abacus:connectNetwork', {
-        detail: {
-          indexerUrl,
-          indexerSocketUrl,
-          validatorUrl,
-          chainId,
-          faucetUrl,
-        },
+        detail: parsedParams,
       });
 
       globalThis.dispatchEvent(customEvent);
@@ -99,9 +127,7 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
       this.store?.dispatch(
         openDialog({ type: DialogTypes.ExchangeOffline, dialogProps: { preventClose: true } })
       );
-
       log('DydxChainTransactions/connectNetwork', error);
-      return;
     }
   }
 
@@ -185,14 +211,19 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
         throw new StatefulOrderError('Stateful order has failed to commit.', tx);
       }
 
-      const parsedTx = this.parseToPrimitives(tx);
-      const hash = parsedTx?.hash;
+      const encodedTx = encodeJson(tx);
+      const parsedTx = JSON.parse(encodedTx);
+      const hash = parsedTx.hash.toUpperCase();
 
-      if (import.meta.env.MODE === 'production') {
-        console.log(`https://testnet.mintscan.io/dydx-testnet/txs/${hash}`);
+      if (isTestnet) {
+        console.log(
+          `${ENVIRONMENT_CONFIG_MAP[
+            this.compositeClient.network.getString() as DydxNetwork
+          ]?.links?.mintscan?.replace('{tx_hash}', hash.toString())}`
+        );
       } else console.log(`txHash: ${hash}`);
 
-      return JSON.stringify(parsedTx);
+      return encodedTx;
     } catch (error) {
       if (error?.name !== 'BroadcastError') {
         log('DydxChainTransactions/placeOrderTransaction', error);
@@ -213,18 +244,23 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
       params ?? {};
 
     try {
-      const tx = await this.compositeClient?.cancelOrder(
+      const tx = await this.compositeClient?.cancelRawOrder(
         new SubaccountClient(this.localWallet, subaccountNumber),
         clientId,
         orderFlags,
         clobPairId,
-        goodTilBlock ?? undefined,
-        goodTilBlockTime ?? undefined
+        goodTilBlock || undefined,
+        goodTilBlockTime || undefined
       );
 
-      const parsedTx = this.parseToPrimitives(tx);
+      const encodedTx = encodeJson(tx);
 
-      return JSON.stringify(parsedTx);
+      if (import.meta.env.MODE === 'development') {
+        const parsedTx = JSON.parse(encodedTx);
+        console.log(parsedTx, parsedTx.hash.toUpperCase());
+      }
+
+      return encodedTx;
     } catch (error) {
       log('DydxChainTransactions/cancelOrderTransaction', error);
 
@@ -251,7 +287,7 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
             const msg = compositeClient.withdrawFromSubaccountMessage(subaccountClient, amount);
 
             resolve([msg]);
-          }),
+          })
       );
 
       const parsedTx = this.parseToPrimitives(tx);
@@ -266,7 +302,9 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
     }
   }
 
-  async simulateTransferNativeTokenTransaction(params: HumanReadableTransferPayload): Promise<string> {
+  async simulateTransferNativeTokenTransaction(
+    params: HumanReadableTransferPayload
+  ): Promise<string> {
     if (!this.compositeClient || !this.localWallet) {
       throw new Error('Missing compositeClient or localWallet');
     }
@@ -280,16 +318,14 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
         this.localWallet,
         () =>
           new Promise((resolve) => {
-            const msg = compositeClient?.validatorClient.post.composer.composeMsgSendToken(
-              subaccountClient.address,
-              recipient,
-              DYDX_DENOM,
-              Long.fromNumber(amount * QUANTUM_MULTIPLIER)
-            );
+            if (!this.localWallet) {
+              throw new Error('Missing compositeClient or localWallet');
+            }
+            const msg = compositeClient?.sendTokenMessage(this.localWallet, amount, recipient);
 
             resolve([msg]);
           }),
-        GAS_PRICE_DYDX_DENOM,
+        this.compositeClient?.validatorClient?.post.defaultDydxGasPrice
       );
 
       const parsedTx = this.parseToPrimitives(tx);
@@ -297,6 +333,46 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
       return JSON.stringify(parsedTx);
     } catch (error) {
       log('DydxChainTransactions/simulateTransferNativeTokenTransaction', error);
+
+      return JSON.stringify({
+        error,
+      });
+    }
+  }
+
+  async sendNobleIBC(
+    params: {
+      msgTypeUrl: string,
+      msg: any,
+    }
+  ): Promise<string> {
+    if (!this.nobleClient?.isConnected) {
+      throw new Error('Missing nobleClient or localWallet');
+    }
+
+    try {
+      const ibcMsg = {
+        typeUrl: params.msgTypeUrl, // '/ibc.applications.transfer.v1.MsgTransfer',
+        value: params.msg,
+      };
+      const fee = await this.nobleClient.simulateTransaction([ibcMsg]);
+  
+      // take out fee from amount before sweeping
+      const amount = parseInt(ibcMsg.value.token.amount, 10) -
+        Math.floor(parseInt(fee.amount[0].amount, 10) * GAS_MULTIPLIER);
+  
+      if (amount <= 0) {
+        throw new Error('noble balance does not cover fees');
+      }
+  
+      ibcMsg.value.token.amount = amount.toString();
+      const tx = await this.nobleClient.send([ibcMsg]);
+
+      const parsedTx = this.parseToPrimitives(tx);
+
+      return JSON.stringify(parsedTx);
+    } catch (error) {
+      log('DydxChainTransactions/sendNobleIBC', error);
 
       return JSON.stringify({
         error,
@@ -330,6 +406,11 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
         }
         case TransactionType.simulateTransferNativeToken: {
           const result = await this.simulateTransferNativeTokenTransaction(params);
+          callback(result);
+          break;
+        }
+        case TransactionType.SendNobleIBC: {
+          const result = await this.sendNobleIBC(params);
           callback(result);
           break;
         }
@@ -397,9 +478,10 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
           break;
         case QueryType.GetAccountBalances:
           if (!this.localWallet?.address) throw new Error('Missing localWallet');
-          const accountBalances = await this.compositeClient?.validatorClient.get.getAccountBalances(
-            this.localWallet.address
-          );
+          const accountBalances =
+            await this.compositeClient?.validatorClient.get.getAccountBalances(
+              this.localWallet.address
+            );
           const parsedAccountBalances = this.parseToPrimitives(accountBalances);
           callback(JSON.stringify(parsedAccountBalances));
           break;
@@ -419,8 +501,13 @@ class DydxChainTransactions implements AbacusDYDXChainTransactionsProtocol {
           const parseDelegations = this.parseToPrimitives(delegations);
           callback(JSON.stringify(parseDelegations));
           break;
-        // Do not implement Transfers (yet)
-        case QueryType.Transfers:
+        case QueryType.GetNobleBalance:
+          if (this.nobleClient?.isConnected) {
+            const nobleBalance = await this.nobleClient.getAccountBalance('uusdc');
+            const parsedNobleBalance = this.parseToPrimitives(nobleBalance);
+            callback(JSON.stringify(parsedNobleBalance));
+          }
+          break;
         default:
           break;
       }

@@ -7,7 +7,7 @@ import { DialogTypes } from '@/constants/dialogs';
 import { STRING_KEYS } from '@/constants/localization';
 import { TRADE_TYPE_STRINGS, MobilePlaceOrderSteps } from '@/constants/trade';
 
-import { useStringGetter } from '@/hooks';
+import { useStringGetter, useTokenConfigs } from '@/hooks';
 
 import { AssetIcon } from '@/components/AssetIcon';
 import { Button } from '@/components/Button';
@@ -47,6 +47,7 @@ export const PlaceOrderButtonAndReceipt = ({
 }: ElementProps) => {
   const stringGetter = useStringGetter();
   const dispatch = useDispatch();
+  const { chainTokenLabel } = useTokenConfigs();
 
   const canAccountTrade = useSelector(calculateCanAccountTrade);
   const subaccountNumber = useSelector(getSubaccountId);
@@ -77,7 +78,11 @@ export const PlaceOrderButtonAndReceipt = ({
     },
     {
       key: 'fee',
-      label: stringGetter({ key: STRING_KEYS.FEE }),
+      label: (
+        <WithTooltip tooltip="fee" side="right">
+          {stringGetter({ key: STRING_KEYS.FEE })}
+        </WithTooltip>
+      ),
       value: <Output type={OutputType.Fiat} value={fee} useGrouping />,
     },
     {
@@ -85,10 +90,17 @@ export const PlaceOrderButtonAndReceipt = ({
       label: (
         <>
           {stringGetter({ key: STRING_KEYS.MAXIMUM_REWARDS })}
-          {/* <AssetIcon symbol="DYDX" /> */}
+          <AssetIcon symbol={chainTokenLabel} />
         </>
       ),
-      value: <Output type={OutputType.Asset} value={reward} useGrouping tag={reward ? "Dv4TNT" : ''} />,
+      value: (
+        <Output
+          type={OutputType.Asset}
+          value={reward}
+          useGrouping
+          tag={reward ? chainTokenLabel : ''}
+        />
+      ),
       tooltip: 'max-reward',
     },
     {
@@ -111,7 +123,7 @@ export const PlaceOrderButtonAndReceipt = ({
         ? actionStringKey
         : STRING_KEYS.UNAVAILABLE,
       buttonAction: ButtonAction.Primary,
-      buttonState: { isDisabled: !shouldEnableTrade },
+      buttonState: { isDisabled: !shouldEnableTrade, isLoading: hasMissingData },
     },
 
     [MobilePlaceOrderSteps.PreviewOrder]: {
@@ -148,7 +160,10 @@ export const PlaceOrderButtonAndReceipt = ({
 
   const buttonState = currentStep
     ? buttonStatesPerStep[currentStep].buttonState
-    : { isDisabled: !shouldEnableTrade || isLoading, isLoading };
+    : {
+        isDisabled: !shouldEnableTrade || isLoading,
+        isLoading: isLoading || hasMissingData,
+      };
 
   return (
     <WithDetailsReceipt detailItems={items}>

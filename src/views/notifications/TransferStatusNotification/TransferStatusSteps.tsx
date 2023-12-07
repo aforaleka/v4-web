@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import styled, { css, keyframes, type AnyStyledComponent } from 'styled-components';
+import styled, { css, type AnyStyledComponent } from 'styled-components';
 import { StatusResponse } from '@0xsquid/sdk';
 
-import { useStringGetter } from '@/hooks';
+import { useStringGetter, useSelectedNetwork, useURLConfigs } from '@/hooks';
 
 import { Link } from '@/components/Link';
 import { Icon, IconName } from '@/components/Icon';
@@ -11,10 +11,15 @@ import { LoadingSpinner } from '@/components/Loading/LoadingSpinner';
 
 import { layoutMixins } from '@/styles/layoutMixins';
 import { STRING_KEYS } from '@/constants/localization';
+import { ENVIRONMENT_CONFIG_MAP } from '@/constants/networks';
 
 type ElementProps = {
   status?: StatusResponse;
   type: 'withdrawal' | 'deposit';
+};
+
+type StyleProps = {
+  className?: string;
 };
 
 enum TransferStatusStep {
@@ -24,13 +29,18 @@ enum TransferStatusStep {
   Complete,
 }
 
-export const TransferStatusSteps = ({ status, type }: ElementProps) => {
+export const TransferStatusSteps = ({ className, status, type }: ElementProps & StyleProps) => {
   const stringGetter = useStringGetter();
+  const { selectedNetwork } = useSelectedNetwork();
+  const { mintscan: mintscanTxUrl } = useURLConfigs();
+  const dydxChainId = ENVIRONMENT_CONFIG_MAP[selectedNetwork].dydxChainId;
 
   const { currentStep, steps } = useMemo(() => {
     const routeStatus = status?.routeStatus;
     const fromChain = status?.fromChain?.chainData?.chainId;
     const toChain = status?.toChain?.chainData?.chainId;
+
+    const currentStatus = routeStatus?.[routeStatus?.length - 1];
 
     const steps = [
       {
@@ -39,7 +49,12 @@ export const TransferStatusSteps = ({ status, type }: ElementProps) => {
             type === 'deposit' ? STRING_KEYS.INITIATED_DEPOSIT : STRING_KEYS.INITIATED_WITHDRAWAL,
         }),
         step: TransferStatusStep.FromChain,
-        link: status?.fromChain?.transactionUrl,
+        link: 
+          type === 'deposit'
+            ? status?.fromChain?.transactionUrl
+            : routeStatus?.[0]?.chainId === dydxChainId && routeStatus[0].txHash
+            ? `${mintscanTxUrl?.replace('{tx_hash}', routeStatus[0].txHash.replace('0x', ''))}`
+            : undefined,
       },
       {
         label: stringGetter({ key: STRING_KEYS.BRIDGING_TOKENS }),
@@ -54,11 +69,14 @@ export const TransferStatusSteps = ({ status, type }: ElementProps) => {
           },
         }),
         step: TransferStatusStep.ToChain,
-        link: status?.toChain?.transactionUrl,
+        link:
+          type === 'withdrawal'
+            ? status?.toChain?.transactionUrl
+            : currentStatus?.chainId === dydxChainId && currentStatus?.txHash
+            ? `${mintscanTxUrl?.replace('{tx_hash}', currentStatus.txHash.replace('0x', ''))}`
+            : undefined,
       },
     ];
-
-    const currentStatus = routeStatus?.[routeStatus?.length - 1];
 
     let currentStep = TransferStatusStep.Bridge;
 
@@ -87,7 +105,7 @@ export const TransferStatusSteps = ({ status, type }: ElementProps) => {
   if (!status) return <LoadingDots size={3} />;
 
   return (
-    <Styled.BridgingStatus>
+    <Styled.BridgingStatus className={className}>
       {steps.map((step) => (
         <Styled.Step key={step.step}>
           <Styled.row>

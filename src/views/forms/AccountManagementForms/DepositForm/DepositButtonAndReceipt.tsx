@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useState, type ReactNode } from 'react';
-import styled, { type AnyStyledComponent,  } from 'styled-components';
+import styled, { type AnyStyledComponent } from 'styled-components';
 import { shallowEqual, useSelector } from 'react-redux';
 import type { RouteData } from '@0xsquid/sdk';
 
@@ -28,9 +28,13 @@ import { Output, OutputType } from '@/components/Output';
 import { Tag } from '@/components/Tag';
 import { ToggleButton } from '@/components/ToggleButton';
 import { WithReceipt } from '@/components/WithReceipt';
+import { OnboardingTriggerButton } from '@/views/dialogs/OnboardingTriggerButton';
 
+import { calculateCanAccountTrade } from '@/state/accountCalculators';
 import { getSubaccountBuyingPower, getSubaccountEquity } from '@/state/accountSelectors';
 import { getTransferInputs } from '@/state/inputsSelectors';
+
+import { MustBigNumber } from '@/lib/numbers';
 
 import { SlippageEditor } from '../SlippageEditor';
 
@@ -61,6 +65,8 @@ export const DepositButtonAndReceipt = ({
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(false);
   const [isEditingSlippage, setIsEditingSlipapge] = useState(false);
   const stringGetter = useStringGetter();
+
+  const canAccountTrade = useSelector(calculateCanAccountTrade, shallowEqual);
 
   const {
     matchNetwork: switchNetwork,
@@ -103,6 +109,8 @@ export const DepositButtonAndReceipt = ({
     ? stringGetter({ key: STRING_KEYS.HIDE_ALL_DETAILS })
     : stringGetter({ key: STRING_KEYS.SHOW_ALL_DETAILS });
 
+  const totalFees = (summary?.bridgeFee || 0) + (summary?.gasFee || 0);
+
   const submitButtonReceipt = [
     {
       key: 'equity',
@@ -131,7 +139,7 @@ export const DepositButtonAndReceipt = ({
       value: (
         <DiffOutput
           type={OutputType.Fiat}
-          value={buyingPower}
+          value={MustBigNumber(buyingPower).lt(0) ? undefined : buyingPower}
           newValue={newBuyingPower}
           sign={NumberSign.Positive}
           withDiff={Boolean(newBuyingPower) && buyingPower !== newBuyingPower}
@@ -152,9 +160,7 @@ export const DepositButtonAndReceipt = ({
     {
       key: 'total-fees',
       label: <span>{stringGetter({ key: STRING_KEYS.TOTAL_FEES })}</span>,
-      value: typeof summary?.bridgeFee === 'number' && typeof summary?.gasFee === 'number' && (
-        <Output type={OutputType.Fiat} value={summary?.bridgeFee + summary?.gasFee} />
-      ),
+      value: <Output type={OutputType.Fiat} value={totalFees} />,
       subitems: feeSubitems,
     },
     {
@@ -162,6 +168,7 @@ export const DepositButtonAndReceipt = ({
       label: <span>{stringGetter({ key: STRING_KEYS.SLIPPAGE })}</span>,
       value: (
         <SlippageEditor
+          disabled
           slippage={slippage}
           setIsEditing={setIsEditingSlipapge}
           setSlippage={setSlippage}
@@ -176,7 +183,12 @@ export const DepositButtonAndReceipt = ({
           type={OutputType.Text}
           value={stringGetter({
             key: STRING_KEYS.X_MINUTES_LOWERCASED,
-            params: { X: Math.round(summary?.estimatedRouteDuration / 60) },
+            params: {
+              X:
+                summary?.estimatedRouteDuration < 60
+                  ? '< 1'
+                  : Math.round(summary?.estimatedRouteDuration / 60),
+            },
           })}
         />
       ),
@@ -207,7 +219,9 @@ export const DepositButtonAndReceipt = ({
       }
       slotError={slotError}
     >
-      {!isMatchingNetwork ? (
+      {!canAccountTrade ? (
+        <OnboardingTriggerButton size={ButtonSize.Base} />
+      ) : !isMatchingNetwork ? (
         <Button
           action={ButtonAction.Primary}
           onClick={switchNetwork}
@@ -244,8 +258,7 @@ Styled.WithReceipt = styled(WithReceipt)`
 
 Styled.CollapsibleDetails = styled.div`
   ${layoutMixins.column}
-  padding: 0.375rem 1rem 0.5rem;
-  gap: 0.5rem;
+  padding: var(--form-input-paddingY) var(--form-input-paddingX);
 `;
 
 Styled.Details = styled(Details)`

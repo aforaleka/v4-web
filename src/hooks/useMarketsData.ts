@@ -1,13 +1,22 @@
 import { useMemo } from 'react';
 import { useSelector, shallowEqual } from 'react-redux';
 
-import { MarketFilters, MARKET_FILTER_LABELS, type MarketData } from '@/constants/markets';
+import {
+  MarketFilters,
+  MARKET_FILTER_LABELS,
+  type MarketData,
+  MARKETS_TO_DISPLAY,
+} from '@/constants/markets';
+
+import { testFlags } from '@/lib/testFlags';
 
 import { getAssets } from '@/state/assetsSelectors';
 import { getPerpetualMarkets } from '@/state/perpetualsSelectors';
 
+import { isTruthy } from '@/lib/isTruthy';
+
 const filterFunctions = {
-  [MarketFilters.ALL]: (market: MarketData) => true,
+  [MarketFilters.ALL]: () => true,
   [MarketFilters.LAYER_1]: (market: MarketData) => {
     return market.asset.tags?.toArray().includes('Layer 1');
   },
@@ -28,17 +37,21 @@ export const useMarketsData = (
   const allAssets = useSelector(getAssets, shallowEqual) || {};
 
   const markets = useMemo(() => {
-    return Object.values(allPerpetualMarkets).map((marketData) => ({
-      asset: allAssets[marketData.assetId],
-      tickSizeDecimals: marketData.configs?.tickSizeDecimals,
-      ...marketData,
-      ...marketData.perpetual,
-      ...marketData.configs,
-    })) as MarketData[];
+    return Object.values(allPerpetualMarkets)
+      .filter(isTruthy)
+      .map((marketData) => ({
+        asset: allAssets[marketData.assetId],
+        tickSizeDecimals: marketData.configs?.tickSizeDecimals,
+        ...marketData,
+        ...marketData.perpetual,
+        ...marketData.configs,
+      })) as MarketData[];
   }, [allPerpetualMarkets, allAssets]);
 
   const filteredMarkets = useMemo(() => {
-    const filtered = markets.filter(filterFunctions[filter]);
+    const filtered = markets
+      .filter(filterFunctions[filter])
+      .filter(({ id }) => (testFlags.displayAllMarkets ? true : MARKETS_TO_DISPLAY.includes(id)));
 
     if (searchFilter) {
       return filtered.filter(

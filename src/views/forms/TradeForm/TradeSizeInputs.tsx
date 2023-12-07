@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { shallowEqual, useSelector } from 'react-redux';
+import { shallowEqual, useDispatch, useSelector } from 'react-redux';
 import styled, { AnyStyledComponent } from 'styled-components';
 
 import { TradeInputField } from '@/constants/abacus';
@@ -20,8 +20,13 @@ import { Icon, IconName } from '@/components/Icon';
 import { ToggleButton } from '@/components/ToggleButton';
 
 import { getCurrentMarketAssetData } from '@/state/assetsSelectors';
+import { setTradeFormInputs } from '@/state/inputs';
 
-import { getInputTradeSizeData, getInputTradeOptions } from '@/state/inputsSelectors';
+import {
+  getInputTradeSizeData,
+  getInputTradeOptions,
+  getTradeFormInputs,
+} from '@/state/inputsSelectors';
 
 import { getCurrentMarketConfig } from '@/state/perpetualsSelectors';
 
@@ -31,12 +36,8 @@ import { MustBigNumber } from '@/lib/numbers';
 import { MarketLeverageInput } from './MarketLeverageInput';
 
 export const TradeSizeInputs = () => {
-  const [sizeInputValue, setSizeInputValue] = useState<number | null>();
-  const [usdcInputValue, setUsdcInputValue] = useState<number | null>();
-  const [leverageInputValue, setLeverageInputValue] = useState<number | null>();
-
   const [showUSDCInputOnTablet, setShowUSDCInputOnTablet] = useState(false);
-
+  const dispatch = useDispatch();
   const stringGetter = useStringGetter();
   const { isTablet } = useBreakpoints();
 
@@ -48,40 +49,55 @@ export const TradeSizeInputs = () => {
     useSelector(getCurrentMarketConfig, shallowEqual) || {};
   const { size, usdcSize, leverage, input: lastEditedInput } = inputTradeSizeData || {};
   const { needsLeverage } = currentTradeInputOptions || {};
-  const decimals = stepSizeDecimals || TOKEN_DECIMALS;
+  const decimals = stepSizeDecimals ?? TOKEN_DECIMALS;
+
+  const { amountInput, usdAmountInput, leverageInput } = useSelector(
+    getTradeFormInputs,
+    shallowEqual
+  );
 
   // Update State variables if their inputs are not being source of calculations
   // Or if they have been reset to null
   useEffect(() => {
     if (lastEditedInput !== TradeSizeInput.Size || size == null) {
-      // Abacus size already respects step size
-      // using .toFixed to prevent trailing zeros and exponential notation
-      setSizeInputValue(size);
+      dispatch(setTradeFormInputs({ amountInput: size ? size.toString() : '' }));
     }
     if (lastEditedInput !== TradeSizeInput.Usdc || usdcSize == null) {
-      setUsdcInputValue(usdcSize);
+      dispatch(setTradeFormInputs({ usdAmountInput: usdcSize ? usdcSize.toString() : '' }));
     }
     if (lastEditedInput !== TradeSizeInput.Leverage || leverage == null) {
-      setLeverageInputValue(leverage);
+      dispatch(setTradeFormInputs({ leverageInput: leverage ? leverage.toString() : '' }));
     }
   }, [size, usdcSize, leverage, lastEditedInput]);
 
-  const onSizeInput = ({ value, floatValue }: { value: string; floatValue?: number }) => {
-    setSizeInputValue(floatValue);
+  const onSizeInput = ({
+    floatValue,
+    formattedValue,
+  }: {
+    floatValue?: number;
+    formattedValue: string;
+  }) => {
+    dispatch(setTradeFormInputs({ amountInput: MustBigNumber(floatValue).toString() }));
     const newAmount = MustBigNumber(floatValue).toFixed(decimals);
 
     abacusStateManager.setTradeValue({
-      value: value === '' || newAmount === 'NaN' ? null : newAmount,
+      value: formattedValue === '' || newAmount === 'NaN' ? null : newAmount,
       field: TradeInputField.size,
     });
   };
 
-  const onUSDCInput = ({ value, floatValue }: { value: string; floatValue?: number }) => {
-    setUsdcInputValue(floatValue);
-    const newUsdcAmount = MustBigNumber(floatValue).toFixed();
+  const onUSDCInput = ({
+    floatValue,
+    formattedValue,
+  }: {
+    floatValue?: number;
+    formattedValue: string;
+  }) => {
+    dispatch(setTradeFormInputs({ usdAmountInput: MustBigNumber(floatValue).toString() }));
+    const newUsdcAmount = MustBigNumber(floatValue).toFixed(tickSizeDecimals || USD_DECIMALS);
 
     abacusStateManager.setTradeValue({
-      value: value === '' || newUsdcAmount === 'NaN' ? null : newUsdcAmount,
+      value: formattedValue === '' || newUsdcAmount === 'NaN' ? null : newUsdcAmount,
       field: TradeInputField.usdcSize,
     });
   };
@@ -113,7 +129,7 @@ export const TradeSizeInputs = () => {
       }
       slotRight={isTablet && inputToggleButton}
       type={InputType.Number}
-      value={sizeInputValue || ''}
+      value={amountInput || ''}
     />
   );
 
@@ -122,7 +138,7 @@ export const TradeSizeInputs = () => {
       id="trade-usdc"
       onInput={onUSDCInput}
       type={InputType.Currency}
-      value={usdcInputValue || ''}
+      value={usdAmountInput || ''}
       decimals={tickSizeDecimals || USD_DECIMALS}
       label={
         <>
@@ -153,8 +169,10 @@ export const TradeSizeInputs = () => {
 
       {needsLeverage && (
         <MarketLeverageInput
-          leverageInputValue={leverageInputValue}
-          setLeverageInputValue={setLeverageInputValue}
+          leverageInputValue={leverageInput}
+          setLeverageInputValue={(value: string) =>
+            dispatch(setTradeFormInputs({ leverageInput: value }))
+          }
         />
       )}
     </Styled.Column>

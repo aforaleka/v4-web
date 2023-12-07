@@ -3,13 +3,14 @@ import type { ChangeEvent, FormEvent } from 'react';
 import styled, { type AnyStyledComponent } from 'styled-components';
 import type { NumberFormatValues } from 'react-number-format';
 import { shallowEqual, useSelector } from 'react-redux';
-import { TESTNET_CHAIN_ID } from '@dydxprotocol/v4-client-js';
 import { isAddress } from 'viem';
 
 import { TransferInputField, TransferInputTokenResource, TransferType } from '@/constants/abacus';
 import { AlertType } from '@/constants/alerts';
 import { ButtonSize } from '@/constants/buttons';
 import { STRING_KEYS } from '@/constants/localization';
+import { ENVIRONMENT_CONFIG_MAP } from '@/constants/networks';
+import { NotificationStatus } from '@/constants/notifications';
 import { NumberSign } from '@/constants/numbers';
 
 import {
@@ -17,6 +18,7 @@ import {
   useDebounce,
   useDydxClient,
   useRestrictions,
+  useSelectedNetwork,
   useStringGetter,
   useSubaccount,
 } from '@/hooks';
@@ -46,20 +48,15 @@ import { MustBigNumber } from '@/lib/numbers';
 
 import { TokenSelectMenu } from './TokenSelectMenu';
 import { WithdrawButtonAndReceipt } from './WithdrawForm/WithdrawButtonAndReceipt';
-import { join } from 'path';
 
 export const WithdrawForm = () => {
   const stringGetter = useStringGetter();
   const [error, setError] = useState<string>();
   const [isLoading, setIsLoading] = useState(false);
+  const { selectedNetwork } = useSelectedNetwork();
 
   const { sendSquidWithdraw } = useSubaccount();
   const { freeCollateral } = useSelector(getSubaccount, shallowEqual) || {};
-
-  // User input
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [slippage, setSlippage] = useState(0.01); // 0.1% slippage
-  const debouncedAmount = useDebounce<string>(withdrawAmount, 500);
 
   const {
     requestPayload,
@@ -67,7 +64,16 @@ export const WithdrawForm = () => {
     chain: chainIdStr,
     address: toAddress,
     resources,
+    errors: routeErrors,
+    errorMessage: routeErrorMessage,
+    isCctp
   } = useSelector(getTransferInputs, shallowEqual) || {};
+
+  // User input
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [slippage, setSlippage] = useState(isCctp ? 0 : 0.01); // 0.1% slippage
+  const debouncedAmount = useDebounce<string>(withdrawAmount, 500);
+
 
   const isValidAddress = toAddress && isAddress(toAddress);
 
@@ -84,6 +90,8 @@ export const WithdrawForm = () => {
     () => MustBigNumber(freeCollateral?.current),
     [freeCollateral?.current]
   );
+
+  useEffect(() => setSlippage(isCctp ? 0 : 0.01), [isCctp]);
 
   useEffect(() => {
     abacusStateManager.setTransferValue({
@@ -164,10 +172,11 @@ export const WithdrawForm = () => {
             const hash = `0x${Buffer.from(txHash.hash).toString('hex')}`;
             addTransferNotification({
               txHash: hash,
-              fromChainId: TESTNET_CHAIN_ID,
+              fromChainId: ENVIRONMENT_CONFIG_MAP[selectedNetwork].dydxChainId,
               toChainId: chainIdStr || undefined,
               toAmount: debouncedAmountBN.toNumber(),
               triggeredAt: Date.now(),
+              notificationStatus: NotificationStatus.Triggered,
             });
             abacusStateManager.clearTransferInputValues();
             setWithdrawAmount('');
@@ -279,6 +288,15 @@ export const WithdrawForm = () => {
       });
     }
 
+    if (routeErrors) {
+      return routeErrorMessage
+        ? stringGetter({
+            key: STRING_KEYS.SOMETHING_WENT_WRONG_WITH_MESSAGE,
+            params: { ERROR_MESSAGE: routeErrorMessage },
+          })
+        : stringGetter({ key: STRING_KEYS.SOMETHING_WENT_WRONG });
+    }
+
     if (!toAddress) return stringGetter({ key: STRING_KEYS.WITHDRAW_MUST_SPECIFY_ADDRESS });
 
     if (sanctionedAddresses.has(toAddress))
@@ -301,12 +319,15 @@ export const WithdrawForm = () => {
     return undefined;
   }, [
     error,
+    routeErrors,
+    routeErrorMessage,
     freeCollateralBN,
     chainIdStr,
     debouncedAmountBN,
     toToken,
     toAddress,
     sanctionedAddresses,
+    stringGetter,
   ]);
 
   const isDisabled =
@@ -354,14 +375,16 @@ export const WithdrawForm = () => {
         />
       </Styled.WithDetailsReceipt>
       {errorMessage && <AlertMessage type={AlertType.Error}>{errorMessage}</AlertMessage>}
-      <WithdrawButtonAndReceipt
-        isDisabled={isDisabled}
-        isLoading={isLoading}
-        setSlippage={onSetSlippage}
-        slippage={slippage}
-        withdrawChain={chainIdStr || undefined}
-        withdrawToken={toToken || undefined}
-      />
+      <Styled.Footer>
+        <WithdrawButtonAndReceipt
+          isDisabled={isDisabled}
+          isLoading={isLoading}
+          setSlippage={onSetSlippage}
+          slippage={slippage}
+          withdrawChain={chainIdStr || undefined}
+          withdrawToken={toToken || undefined}
+        />
+      </Styled.Footer>
     </Styled.Form>
   );
 };
@@ -373,14 +396,12 @@ Styled.DiffOutput = styled(DiffOutput)`
 `;
 
 Styled.Form = styled.form`
-  --form-input-height: 3.5rem;
+  ${formMixins.transfersForm}
+`;
 
-  min-height: calc(100% - var(--stickyArea0-bottomHeight));
-
-  ${layoutMixins.flexColumn}
-  gap: 1.25rem;
-
-  ${layoutMixins.stickyArea1}
+Styled.Footer = styled.footer`
+  ${formMixins.footer}
+  --stickyFooterBackdrop-outsetY: var(--dialog-content-paddingBottom);
 `;
 
 Styled.DestinationRow = styled.div`

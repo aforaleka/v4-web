@@ -67,7 +67,8 @@ export const MarketsTable = ({ className }: { className?: string }) => {
                         <Styled.Output
                           type={OutputType.Percent}
                           value={MustBigNumber(priceChange24HPercent).abs()}
-                          isNegative={MustBigNumber(priceChange24H).isNegative()}
+                          isPositive={MustBigNumber(priceChange24HPercent).gt(0)}
+                          isNegative={MustBigNumber(priceChange24HPercent).isNegative()}
                         />
                       </>
                     )}
@@ -96,19 +97,20 @@ export const MarketsTable = ({ className }: { className?: string }) => {
               ),
             },
             {
-              columnKey: 'priceChange24H',
-              getCellValue: (row) => row.priceChange24H,
+              columnKey: 'priceChange24HPercent',
+              getCellValue: (row) => row.priceChange24HPercent,
               label: stringGetter({ key: STRING_KEYS.CHANGE_24H }),
               renderCell: ({ priceChange24H, priceChange24HPercent, tickSizeDecimals }) => (
                 <TableCell stacked>
                   <Styled.InlineRow>
-                    {!priceChange24H ? (
+                    {!priceChange24HPercent ? (
                       <Output type={OutputType.Text} value={null} />
                     ) : (
                       <Styled.Output
                         type={OutputType.Percent}
                         value={MustBigNumber(priceChange24HPercent).abs()}
-                        isNegative={MustBigNumber(priceChange24H).isNegative()}
+                        isPositive={MustBigNumber(priceChange24HPercent).gt(0)}
+                        isNegative={MustBigNumber(priceChange24HPercent).isNegative()}
                       />
                     )}
                   </Styled.InlineRow>
@@ -128,25 +130,24 @@ export const MarketsTable = ({ className }: { className?: string }) => {
                 <Styled.Output
                   type={OutputType.SmallPercent}
                   value={row.nextFundingRate}
+                  isPositive={MustBigNumber(row.nextFundingRate).gt(0)}
                   isNegative={MustBigNumber(row.nextFundingRate).isNegative()}
                 />
               ),
             },
             {
               columnKey: 'openInterest',
-              getCellValue: (row) => row.openInterest,
+              getCellValue: (row) => row.openInterestUSDC,
               label: stringGetter({ key: STRING_KEYS.OPEN_INTEREST }),
               renderCell: (row) => (
                 <TableCell stacked>
+                  <Output type={OutputType.Fiat} value={row.openInterestUSDC} />
+
                   <Output
                     fractionDigits={LARGE_TOKEN_DECIMALS}
                     type={OutputType.Number}
                     value={row.openInterest}
                     tag={row.asset?.id}
-                  />
-                  <Output
-                    type={OutputType.Fiat}
-                    value={MustBigNumber(row.openInterest).times(MustBigNumber(row.oraclePrice))}
                   />
                 </TableCell>
               ),
@@ -155,7 +156,7 @@ export const MarketsTable = ({ className }: { className?: string }) => {
               columnKey: 'volume24H',
               getCellValue: (row) => row.volume24H,
               label: stringGetter({ key: STRING_KEYS.VOLUME_24H }),
-              renderCell: (row) => <Output type={OutputType.Number} value={row.volume24H} />,
+              renderCell: (row) => <Output type={OutputType.Fiat} value={row.volume24H} />,
             },
             {
               columnKey: 'trades24H',
@@ -241,6 +242,11 @@ Styled.TabletPriceChange = styled(Styled.InlineRow)`
   font: var(--font-small-book);
 `;
 
-Styled.Output = styled(Output)<{ isNegative?: boolean }>`
-  color: ${({ isNegative }) => (isNegative ? `var(--color-negative)` : `var(--color-positive)`)};
+Styled.Output = styled(Output)<{ isNegative?: boolean; isPositive?: boolean }>`
+  color: ${({ isNegative, isPositive }) =>
+    isNegative
+      ? `var(--color-negative)`
+      : isPositive
+      ? `var(--color-positive)`
+      : `var(--color-text-1)`};
 `;
